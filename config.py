@@ -5,10 +5,12 @@ from datetime import datetime
 
 class SupportedJobSites(Enum):
     JUSTJOINIT = "justjoinit"
+    PRACUJPLIT = "pracujplit"
 
 
 SITE_ABBREVIATIONS = {
-    SupportedJobSites.JUSTJOINIT: "jjit"
+    SupportedJobSites.JUSTJOINIT: "jjit",
+    SupportedJobSites.PRACUJPLIT: "ppl"
 }
 
 REGION_ABBREVIATIONS = {
@@ -26,7 +28,15 @@ EXPERIENCE_ABBREVIATIONS = {
     "senior": "s",
     "intern": "i",
     "c-level": "man",
-    "c-level,mid": "man"
+    "c-level,mid": "man",
+    "1": "i",
+    "3": "as",
+    "17": "j",
+    "4": "m",
+    "18": "s",
+    "19": "ex",
+    "20": "man",
+    "20%2C6": "man"
 }
 
 # Default paths
@@ -34,11 +44,12 @@ RAW_DATA_DIR = "data/raw"
 STAGING_DATA_DIR = "data/staging"
 
 
-def get_abbreviations(job_site: SupportedJobSites, city: str, experience: str) -> tuple[str, str, str]:
+def get_abbreviations(job_site: SupportedJobSites, city: str, experience: str | int) -> tuple[str, str, str]:
     """Get abbreviations for site, region and experience."""
     site_abbr = SITE_ABBREVIATIONS.get(job_site, str(job_site.value)[:4])
-    region_abbr = REGION_ABBREVIATIONS.get(city.lower(), city[:3])
-    exp_abbr = EXPERIENCE_ABBREVIATIONS.get(experience.lower(), experience[:1])
+    region_abbr = REGION_ABBREVIATIONS.get(city.lower() if city else "all", city[:3] if city else "all")
+    exp_key = str(experience).lower() if isinstance(experience, str) else str(experience)
+    exp_abbr = EXPERIENCE_ABBREVIATIONS.get(exp_key, exp_key[:1])
     return site_abbr, region_abbr, exp_abbr
 
 

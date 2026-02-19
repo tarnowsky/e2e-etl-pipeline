@@ -9,7 +9,7 @@ import re
 from config import (
     SupportedJobSites,
     RAW_DATA_DIR,
-    PROCESSED_DATA_DIR,
+    STAGING_DATA_DIR,
     build_data_path,
     get_latest_file,
 )
@@ -132,7 +132,7 @@ class DataTransformer:
     def transform(
         self,
         input_path: str | Path | None = None,
-        output_dir: str = PROCESSED_DATA_DIR,
+        output_dir: str = STAGING_DATA_DIR,
         city: str = "",
         experience: str = "",
         raw_data_dir: str = RAW_DATA_DIR,
@@ -198,7 +198,7 @@ class DataTransformer:
     def transform_from_html(
         self,
         html_content: str,
-        output_dir: str = PROCESSED_DATA_DIR,
+        output_dir: str = STAGING_DATA_DIR,
         city: str = "",
         experience: str = "",
     ) -> tuple[list[dict], Path | None]:
