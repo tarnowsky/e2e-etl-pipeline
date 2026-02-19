@@ -115,6 +115,101 @@ class JustJoinITTransformer(BaseSiteTransformer):
         return offers
 
 
+class PracujPLITTransformer(BaseSiteTransformer):
+    """Transformer for PracujPL IT job offers HTML."""
+
+    def get_fieldnames(self) -> list[str]:
+        return ["position", "company_name", "minimum", "maximum", "currency", "pay_period"]
+
+    def _clean_text(self, text: str) -> str:
+        """Clean text from extra whitespace and normalize."""
+        cleaned = text.replace("\xa0", " ").strip()
+        return re.sub(r"\s+", " ", cleaned)
+
+    def _parse_salary(self, salary_text: str) -> dict[str, str]:
+        """
+        Parse salary from text like:
+        - "11 000–12 000 zł brutto / mies."
+        - "8 000 zł brutto / mies."
+        """
+        if not salary_text:
+            return {
+                "minimum": "",
+                "maximum": "",
+                "currency": "",
+                "pay_period": ""
+            }
+
+        # Normalize text
+        text = salary_text.replace("\xa0", " ").replace(" ", " ")
+        
+        # Extract all numbers (handling spaces in thousands like "11 000" and decimals like "31,25")
+        # Pattern matches numbers with optional space separators and optional comma decimals
+        number_pattern = r"(\d[\d\s]*(?:,\d+)?)"
+        numbers = re.findall(number_pattern, text)
+        # Normalize: remove spaces, replace comma with dot for decimals
+        numbers = [n.replace(" ", "").replace(",", ".") for n in numbers]
+
+        # Extract currency (zł, PLN, EUR, USD, etc.)
+        currency_match = re.search(r"(zł|PLN|EUR|USD|CHF|GBP)", text, re.IGNORECASE)
+        currency = currency_match.group(1) if currency_match else ""
+        # Normalize currency
+        if currency.lower() == "zł":
+            currency = "PLN"
+
+        # Extract pay period (mies., godz., rok, etc.)
+        period_match = re.search(r"/\s*(mies\.|godz\.|rok|dzień|tydzień|h)", text, re.IGNORECASE)
+        pay_period = period_match.group(1) if period_match else ""
+        # Normalize pay period
+        period_map = {"mies.": "month", "godz.": "h"}
+        pay_period = period_map.get(pay_period, pay_period)
+
+        if len(numbers) >= 2:
+            minimum = numbers[0]
+            maximum = numbers[1]
+        elif len(numbers) == 1:
+            minimum = maximum = numbers[0]
+        else:
+            minimum = maximum = ""
+
+        return {
+            "minimum": minimum,
+            "maximum": maximum,
+            "currency": currency,
+            "pay_period": pay_period
+        }
+
+    def parse(self, html_content: str) -> list[dict[str, Any]]:
+        """Parse PracujPL IT HTML and extract job offers."""
+        soup = BeautifulSoup(html_content, "lxml")
+        offers: list[dict] = []
+
+        # Find all offer divs with data-test="default-offer"
+        offer_divs = soup.find_all("div", attrs={"data-test": "default-offer"})
+
+        for offer_div in offer_divs:
+            # Extract position from <a data-test="link-offer-title">
+            position_elem = offer_div.find("a", attrs={"data-test": "link-offer-title"})
+            position = self._clean_text(position_elem.get_text()) if position_elem else ""
+
+            # Extract company name from <h3 data-test="text-company-name">
+            company_elem = offer_div.find("h3", attrs={"data-test": "text-company-name"})
+            company_name = self._clean_text(company_elem.get_text()) if company_elem else ""
+
+            # Extract salary from <span data-test="offer-salary">
+            salary_elem = offer_div.find("span", attrs={"data-test": "offer-salary"})
+            salary_text = salary_elem.get_text() if salary_elem else ""
+            salary_data = self._parse_salary(salary_text)
+
+            offers.append({
+                "position": position,
+                "company_name": company_name,
+                **salary_data
+            })
+
+        return offers
+
+
 class DataTransformer:
     """
     Main transformer class that handles HTML to CSV transformation.
@@ -126,7 +221,8 @@ class DataTransformer:
     def __init__(self, job_site: SupportedJobSites):
         self.job_site = job_site
         self._transformers: dict[SupportedJobSites, BaseSiteTransformer] = {
-            SupportedJobSites.JUSTJOINIT: JustJoinITTransformer()
+            SupportedJobSites.JUSTJOINIT: JustJoinITTransformer(),
+            SupportedJobSites.PRACUJPLIT: PracujPLITTransformer(),
         }
 
     def transform(
