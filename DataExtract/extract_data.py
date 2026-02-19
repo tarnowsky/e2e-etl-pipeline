@@ -25,6 +25,127 @@ class BaseSiteScraper(ABC):
         pass
 
 
+class PracujPLITScraper(BaseSiteScraper):
+    class City:
+        ALL = None
+        GDANSK = "gdansk"
+        WARSZAWA = "warszawa"
+
+    class Experience:
+        ALL = None
+        INTERN = 1
+        ASISTENT = 3
+        JUNIOR = 17
+        MID = 4
+        SENIOR = 18
+        EXPERT = 19
+        MANAGER = 20
+        MANAGER_C_LEVEL = "20%2C6"
+
+    BASE_URL = "https://it.pracuj.pl/praca"
+
+    def _build_url(self, city: str, experience: str, with_salary: bool):
+        salary_param = "&sal=1" if with_salary else ""
+        experience_param = f"{"&" if city else "?"}et={experience}" if experience else ""
+        city_param = f"/{city};wp?rd=30" if city else "?"
+        return f"{self.BASE_URL}{city_param}{experience_param}{salary_param}"
+
+    def _parse_total_offers(self) -> int:
+        container = self.wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='listing_woosilm']"))
+        )
+        span = container.find_element(By.CSS_SELECTOR, "span[class*='listing_']")
+        text = span.text
+        nums = re.findall(r"\d+", text)
+        if not nums:
+            raise ValueError(f"Failed to parse offer count from: {text}")
+        return int(nums[0])
+
+    def _accept_cookies_if_present(self) -> None:
+        try:
+            cookie_btn = WebDriverWait(self.driver, 3).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-test='button-submitCookie']"))
+            )
+            cookie_btn.click()
+        except Exception:
+            pass
+
+    def _close_popup_if_present(self) -> None:
+        try:
+            close_btn = WebDriverWait(self.driver, 3).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "#popupContainer span[role='button'][title='Zamknij']"))
+            )
+            close_btn.click()
+        except Exception:
+            return
+
+    def _collect_offer_divs(self) -> list[str]:
+        section = self.driver.find_element(By.CSS_SELECTOR, "[data-test='section-offers']")
+        divs = section.find_elements(By.XPATH, "./div")
+        return [div.get_attribute("outerHTML") for div in divs]
+
+    def _is_next_button_visible(self) -> bool:
+        try:
+            pagination_container = self.driver.find_element(
+                By.CSS_SELECTOR, "[data-test='job-offers-bottom-pagination'] > div"
+            )
+            next_btn = pagination_container.find_element(
+                By.CSS_SELECTOR, "[data-test='bottom-pagination-button-next']"
+            )
+            return next_btn.is_displayed()
+        except Exception:
+            return False
+
+    def _click_next_page(self) -> None:
+        next_btn = self.wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-test='bottom-pagination-button-next']"))
+        )
+        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
+        time.sleep(0.3)
+        next_btn.click()
+        time.sleep(0.5)
+
+    def scrape(
+        self,
+        city: str,
+        experience: str,
+        with_salary: bool = True,
+        max_stale_rounds: int = 5,
+        max_rounds: int = 400,
+    ) -> str:
+        url = self._build_url(city, experience, with_salary)
+        self.driver.get(url)
+
+        self._accept_cookies_if_present()
+        self._close_popup_if_present()
+
+        try:
+            total = self._parse_total_offers()
+            print("Total offers (header):", total)
+        except Exception:
+            print("Failed to parse offer count from header.")
+
+        all_offers: list[str] = []
+
+        for page in range(max_rounds):
+            self.wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "[data-test='section-offers']"))
+            )
+
+            page_offers = self._collect_offer_divs()
+            all_offers.extend(page_offers)
+            print(f"Page {page + 1}: collected {len(page_offers)} offers (total: {len(all_offers)})")
+
+            if not self._is_next_button_visible():
+                print("No more pages - next button not visible")
+                break
+
+            self._click_next_page()
+
+        merged_html = "<div>" + "".join(all_offers) + "</div>"
+        return merged_html
+
+
 class JustJoinITScraper(BaseSiteScraper):
     class City:
         ALL = "all-locations"
@@ -136,14 +257,15 @@ class DataScraper:
 
         options = web_driver_options or Options()
         if web_driver_options is None:
-            options.add_argument("--headless")
+            # options.add_argument("--headless")
             options.add_argument("--window-size=1920,1080")
 
         self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, wait_timeout)
 
         self._scrapers: dict[SupportedJobSites, BaseSiteScraper] = {
-            SupportedJobSites.JUSTJOINIT: JustJoinITScraper(self.driver, self.wait)
+            SupportedJobSites.JUSTJOINIT: JustJoinITScraper(self.driver, self.wait),
+            SupportedJobSites.PRACUJPLIT: PracujPLITScraper(self.driver, self.wait),
         }
 
     def scrape(self, output_dir: str = RAW_DATA_DIR, **kwargs) -> str:
